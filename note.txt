@@ -1,69 +1,92 @@
-De normalized
+Schema (Hybrid: Strong Columns + JSONB Objects)
 
-CREATE TABLE job_execution_tracking (
+CREATE TABLE job_execution_event (
     -- Identity
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-    -- Job / Webhook
-    job_name                VARCHAR(100) NOT NULL,
-    job_type                VARCHAR(30)  NOT NULL,      -- BATCH | WEBHOOK
-    trigger_type             VARCHAR(30)  NOT NULL,     -- SCHEDULED | MANUAL | FILE_DROP | API
+    -- Execution identity
+    execution_id          UUID NOT NULL UNIQUE,
+    parent_execution_id   UUID NULL,
 
-    -- Execution
-    execution_id            UUID NOT NULL,
-    parent_execution_id     UUID NULL,
-
-    -- File (nullable for webhook)
-    file_name               VARCHAR(255) NULL,
-    file_type               VARCHAR(50)  NULL,          -- ERF | OAF | ARF
-    file_checksum           VARCHAR(128) NULL,
-    file_size_bytes         BIGINT NULL,
-    blob_path               TEXT NULL,
+    -- Job metadata
+    job_name              VARCHAR(100) NOT NULL,
+    job_type              VARCHAR(30)  NOT NULL,   -- BATCH | WEBHOOK
+    trigger_type           VARCHAR(30)  NOT NULL,  -- SCHEDULED | MANUAL | API | FILE_DROP
+    source_system         VARCHAR(50)  NOT NULL,
 
     -- Lifecycle
-    status                  VARCHAR(30) NOT NULL,       -- RECEIVED | PROCESSING | PARTIAL | SUCCESS | FAILED
-    stage                   VARCHAR(50) NOT NULL,       -- INGESTION | VALIDATION | TRANSFORM | LOAD | REWARD | ISSUANCE
+    status                VARCHAR(30)  NOT NULL,   -- RECEIVED | PROCESSING | PARTIAL | SUCCESS | FAILED
+    stage                 VARCHAR(50)  NOT NULL,
 
-    -- Record-level metrics (PER FILE)
-    total_records           INTEGER DEFAULT 0,
-    valid_records           INTEGER DEFAULT 0,
-    processed_records       INTEGER DEFAULT 0,
-    success_records         INTEGER DEFAULT 0,
-    failed_records          INTEGER DEFAULT 0,
+    -- Aggregate counts (execution-level truth)
+    total_files            INTEGER DEFAULT 0,
+    total_records          INTEGER DEFAULT 0,
+    processed_records      INTEGER DEFAULT 0,
+    success_records        INTEGER DEFAULT 0,
+    failed_records         INTEGER DEFAULT 0,
 
-    -- Error details (file-level)
-    error_code              VARCHAR(100) NULL,
-    error_message           TEXT NULL,
-    error_stacktrace        TEXT NULL,
+    -- File-level details (OBJECT)
+    file_execution_details JSONB NOT NULL,
 
-    -- Timing
-    started_at              TIMESTAMP WITH TIME ZONE NOT NULL,
-    completed_at            TIMESTAMP WITH TIME ZONE NULL,
-    duration_ms             BIGINT NULL,
+    -- Error summary (OBJECT)
+    error_summary          JSONB NULL,
 
     -- Versioning
-    job_version             VARCHAR(20) NULL,
-    file_schema_version     VARCHAR(20) NULL,
+    job_version            VARCHAR(20) NULL,
 
     -- Traceability
-    correlation_id          UUID NOT NULL,
-    source_system           VARCHAR(50) NOT NULL,
+    correlation_id         UUID NOT NULL,
+
+    -- Timing
+    started_at             TIMESTAMP WITH TIME ZONE NOT NULL,
+    completed_at           TIMESTAMP WITH TIME ZONE NULL,
+    duration_ms            BIGINT NULL,
 
     -- Audit
-    created_by              VARCHAR(50) NOT NULL,
-    created_at              TIMESTAMP WITH TIME ZONE DEFAULT now(),
-    updated_at              TIMESTAMP WITH TIME ZONE DEFAULT now(),
-
-    -- Guardrails
-    CONSTRAINT chk_record_counts
-        CHECK (
-            total_records >= 0 AND
-            valid_records >= 0 AND
-            processed_records >= 0 AND
-            success_records >= 0 AND
-            failed_records >= 0 AND
-            success_records + failed_records <= processed_records AND
-            processed_records <= valid_records AND
-            valid_records <= total_records
-        )
+    created_by             VARCHAR(50) NOT NULL,
+    created_at             TIMESTAMP WITH TIME ZONE DEFAULT now()
 );
+
+
+file_execution_details: 
+{
+  "files": [
+    {
+      "file_name": "ERF_2026_02_25.csv",
+      "file_type": "ERF",
+      "checksum": "abc123",
+      "blob_path": "/ofs/erf/2026/02/25",
+      "total_records": 12000,
+      "valid_records": 11800,
+      "processed_records": 11800,
+      "success_records": 11500,
+      "failed_records": 300,
+      "status": "PARTIAL",
+      "errors": [
+        {
+          "code": "INVALID_DATE",
+          "count": 120
+        }
+      ]
+    },
+    {
+      "file_name": "OAF_2026_02_25.csv",
+      "file_type": "OAF",
+      "checksum": "def456",
+      "total_records": 3000,
+      "success_records": 3000,
+      "status": "SUCCESS"
+    }
+  ]
+}
+
+
+error_summary
+{
+  "type": "DATA_VALIDATION",
+  "message": "Partial failure during ERF processing",
+  "failed_files": 1,
+  "failed_records": 300
+}
+
+
