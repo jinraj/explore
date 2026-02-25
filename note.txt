@@ -1,0 +1,69 @@
+De normalized
+
+CREATE TABLE job_execution_tracking (
+    -- Identity
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+
+    -- Job / Webhook
+    job_name                VARCHAR(100) NOT NULL,
+    job_type                VARCHAR(30)  NOT NULL,      -- BATCH | WEBHOOK
+    trigger_type             VARCHAR(30)  NOT NULL,     -- SCHEDULED | MANUAL | FILE_DROP | API
+
+    -- Execution
+    execution_id            UUID NOT NULL,
+    parent_execution_id     UUID NULL,
+
+    -- File (nullable for webhook)
+    file_name               VARCHAR(255) NULL,
+    file_type               VARCHAR(50)  NULL,          -- ERF | OAF | ARF
+    file_checksum           VARCHAR(128) NULL,
+    file_size_bytes         BIGINT NULL,
+    blob_path               TEXT NULL,
+
+    -- Lifecycle
+    status                  VARCHAR(30) NOT NULL,       -- RECEIVED | PROCESSING | PARTIAL | SUCCESS | FAILED
+    stage                   VARCHAR(50) NOT NULL,       -- INGESTION | VALIDATION | TRANSFORM | LOAD | REWARD | ISSUANCE
+
+    -- Record-level metrics (PER FILE)
+    total_records           INTEGER DEFAULT 0,
+    valid_records           INTEGER DEFAULT 0,
+    processed_records       INTEGER DEFAULT 0,
+    success_records         INTEGER DEFAULT 0,
+    failed_records          INTEGER DEFAULT 0,
+
+    -- Error details (file-level)
+    error_code              VARCHAR(100) NULL,
+    error_message           TEXT NULL,
+    error_stacktrace        TEXT NULL,
+
+    -- Timing
+    started_at              TIMESTAMP WITH TIME ZONE NOT NULL,
+    completed_at            TIMESTAMP WITH TIME ZONE NULL,
+    duration_ms             BIGINT NULL,
+
+    -- Versioning
+    job_version             VARCHAR(20) NULL,
+    file_schema_version     VARCHAR(20) NULL,
+
+    -- Traceability
+    correlation_id          UUID NOT NULL,
+    source_system           VARCHAR(50) NOT NULL,
+
+    -- Audit
+    created_by              VARCHAR(50) NOT NULL,
+    created_at              TIMESTAMP WITH TIME ZONE DEFAULT now(),
+    updated_at              TIMESTAMP WITH TIME ZONE DEFAULT now(),
+
+    -- Guardrails
+    CONSTRAINT chk_record_counts
+        CHECK (
+            total_records >= 0 AND
+            valid_records >= 0 AND
+            processed_records >= 0 AND
+            success_records >= 0 AND
+            failed_records >= 0 AND
+            success_records + failed_records <= processed_records AND
+            processed_records <= valid_records AND
+            valid_records <= total_records
+        )
+);
