@@ -1,165 +1,89 @@
-Schema (Hybrid: Strong Columns + JSONB Objects)
-
-CREATE TABLE job_execution_event (
-    -- Identity
+CREATE TABLE member_activity (
+    -- Surrogate identity
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
-    -- Execution identity
-    execution_id          UUID NOT NULL UNIQUE,
-    parent_execution_id   UUID NULL,
+    -- Natural business key (idempotency)
+    member_id                VARCHAR(50) NOT NULL,
+    icario_enrollment_id     UUID NOT NULL,
+    program_id               UUID NOT NULL,
+    activity_code            VARCHAR(50) NOT NULL,
 
-    -- Job metadata
-    job_name              VARCHAR(100) NOT NULL,
-    job_type              VARCHAR(30)  NOT NULL,   -- BATCH | WEBHOOK
-    trigger_type           VARCHAR(30)  NOT NULL,  -- SCHEDULED | MANUAL | API | FILE_DROP
-    source_system         VARCHAR(50)  NOT NULL,
+    -- Activity linkage
+    contact_event_id         UUID NULL,        -- links OAF ↔ ARF
+    survey_id                UUID NULL,        -- if activity is survey-based
 
-    -- Lifecycle
-    status                VARCHAR(30)  NOT NULL,   -- RECEIVED | PROCESSING | PARTIAL | SUCCESS | FAILED
-    stage                 VARCHAR(50)  NOT NULL,
+    -- Activity outcome
+    activity_status          VARCHAR(30) NOT NULL,  -- COMPLETED | INCOMPLETE | INVALID
+    activity_completed_at    TIMESTAMP WITH TIME ZONE NULL,
 
-    -- Aggregate counts (execution-level truth)
-    total_files            INTEGER DEFAULT 0,
-    total_records          INTEGER DEFAULT 0,
-    processed_records      INTEGER DEFAULT 0,
-    success_records        INTEGER DEFAULT 0,
-    failed_records         INTEGER DEFAULT 0,
+    -- Source & timing
+    activity_source          VARCHAR(30) NOT NULL,  -- BATCH | API
+    source_event_timestamp   TIMESTAMP WITH TIME ZONE NOT NULL,
 
-    -- File-level details (OBJECT)
-    file_execution_details JSONB NOT NULL,
+    -- Enrollment context (important for rewards)
+    enrollment_event_type    VARCHAR(30) NULL,      -- New | Renewal | Cancel
+    enrollment_status        VARCHAR(30) NULL,      -- ENROLLED | DISENROLLED
 
-    -- Error summary (OBJECT)
-    error_summary          JSONB NULL,
+    -- Segmentation / business context
+    protocol                 VARCHAR(20) NULL,
+    reporting_segment        VARCHAR(20) NULL,
+    plan_contract_id         VARCHAR(50) NULL,
 
-    -- Versioning
-    job_version            VARCHAR(20) NULL,
-
-    -- Traceability
-    correlation_id         UUID NOT NULL,
-
-    -- Timing
-    started_at             TIMESTAMP WITH TIME ZONE NOT NULL,
-    completed_at           TIMESTAMP WITH TIME ZONE NULL,
-    duration_ms            BIGINT NULL,
+    -- Execution traceability
+    execution_id             UUID NOT NULL,          -- from job_execution_event
+    correlation_id           UUID NOT NULL,
 
     -- Audit
-    created_by             VARCHAR(50) NOT NULL,
-    created_at             TIMESTAMP WITH TIME ZONE DEFAULT now()
+    created_at               TIMESTAMP WITH TIME ZONE DEFAULT now(),
+
+    -- Idempotency protection
+    CONSTRAINT uq_member_activity
+        UNIQUE (
+            member_id,
+            icario_enrollment_id,
+            program_id,
+            activity_code
+        )
 );
 
 
-file_execution_details: 
-{
-  "files": [
-    {
-      "file_name": "ERF_2026_02_25.csv",
-      "file_type": "ERF",
-      "checksum": "abc123",
-      "blob_path": "/ofs/erf/2026/02/25",
-      "total_records": 12000,
-      "valid_records": 11800,
-      "processed_records": 11800,
-      "success_records": 11500,
-      "failed_records": 300,
-      "status": "PARTIAL",
-      "errors": [
-        {
-          "code": "INVALID_DATE",
-          "count": 120
-        }
-      ]
-    },
-    {
-      "file_name": "OAF_2026_02_25.csv",
-      "file_type": "OAF",
-      "checksum": "def456",
-      "total_records": 3000,
-      "success_records": 3000,
-      "status": "SUCCESS"
-    }
-  ]
-}
+CREATE TABLE reward_calculation (
+    -- Surrogate identity
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
 
+    -- Activity reference (the anchor)
+    member_activity_id UUID NOT NULL,
 
-error_summary
-{
-  "type": "DATA_VALIDATION",
-  "message": "Partial failure during ERF processing",
-  "failed_files": 1,
-  "failed_records": 300
-}
+    -- Natural idempotency (activity + rule version)
+    reward_rule_id      VARCHAR(50) NOT NULL,
+    reward_rule_version VARCHAR(20) NOT NULL,
 
+    -- Calculation outcome
+    eligibility_status  VARCHAR(30) NOT NULL,   -- ELIGIBLE | INELIGIBLE
+    reward_type         VARCHAR(30) NOT NULL,   -- POINTS | DOLLAR | GIFT_CARD | etc.
+    reward_amount       NUMERIC(10,2) NOT NULL DEFAULT 0,
 
-ALTER TABLE job_execution_event
-ADD CONSTRAINT uq_execution_id
-    UNIQUE (execution_id),
+    -- Calculation reasoning (VERY IMPORTANT)
+    calculation_reason  VARCHAR(255) NULL,
+    calculation_details JSONB NULL,
 
-ADD CONSTRAINT chk_parent_not_self
-    CHECK (
-        parent_execution_id IS NULL
-        OR parent_execution_id <> execution_id
-    ),
+    -- Execution context
+    execution_id        UUID NOT NULL,
+    correlation_id      UUID NOT NULL,
+    calculated_at       TIMESTAMP WITH TIME ZONE NOT NULL,
 
--- Status validation
-ADD CONSTRAINT chk_status
-    CHECK (
-        status IN ('RECEIVED', 'PROCESSING', 'SUCCESS', 'PARTIAL', 'FAILED')
-    ),
+    -- Issuance linkage (filled later)
+    issuance_status     VARCHAR(30) NOT NULL DEFAULT 'NOT_ISSUED',
+    issuance_id         UUID NULL,
 
+    -- Audit
+    created_at          TIMESTAMP WITH TIME ZONE DEFAULT now(),
 
--- Time correctness
-ADD CONSTRAINT chk_time_order
-    CHECK (
-        completed_at IS NULL
-        OR completed_at >= started_at
-    ),
-
-ADD CONSTRAINT chk_duration
-    CHECK (
-        duration_ms IS NULL
-        OR completed_at IS NOT NULL
-    ),
-
--- Aggregate counters: non-negative
-ADD CONSTRAINT chk_counts_non_negative
-    CHECK (
-        total_files >= 0
-        AND total_records >= 0
-        AND processed_records >= 0
-        AND success_records >= 0
-        AND failed_records >= 0
-    ),
-
--- Aggregate counters: logical consistency
-ADD CONSTRAINT chk_counts_consistency
-    CHECK (
-        success_records + failed_records <= processed_records
-        AND processed_records <= total_records
-    ),
-
--- Status ↔ count semantics
-ADD CONSTRAINT chk_failed_status
-    CHECK (
-        status <> 'FAILED'
-        OR failed_records > 0
-    ),
-
-ADD CONSTRAINT chk_success_status
-    CHECK (
-        status <> 'SUCCESS'
-        OR failed_records = 0
-    ),
-
-ADD CONSTRAINT chk_partial_status
-    CHECK (
-        status <> 'PARTIAL'
-        OR (success_records > 0 AND failed_records > 0)
-    ),
-
--- JSONB shape guardrail
-ADD CONSTRAINT chk_file_details_shape
-    CHECK (
-        file_execution_details ? 'files'
-    );
-
-
+    -- Idempotency guarantee
+    CONSTRAINT uq_reward_calc
+        UNIQUE (
+            member_activity_id,
+            reward_rule_id,
+            reward_rule_version
+        )
+);
