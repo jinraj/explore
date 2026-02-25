@@ -90,3 +90,76 @@ error_summary
 }
 
 
+ALTER TABLE job_execution_event
+ADD CONSTRAINT uq_execution_id
+    UNIQUE (execution_id),
+
+ADD CONSTRAINT chk_parent_not_self
+    CHECK (
+        parent_execution_id IS NULL
+        OR parent_execution_id <> execution_id
+    ),
+
+-- Status validation
+ADD CONSTRAINT chk_status
+    CHECK (
+        status IN ('RECEIVED', 'PROCESSING', 'SUCCESS', 'PARTIAL', 'FAILED')
+    ),
+
+
+-- Time correctness
+ADD CONSTRAINT chk_time_order
+    CHECK (
+        completed_at IS NULL
+        OR completed_at >= started_at
+    ),
+
+ADD CONSTRAINT chk_duration
+    CHECK (
+        duration_ms IS NULL
+        OR completed_at IS NOT NULL
+    ),
+
+-- Aggregate counters: non-negative
+ADD CONSTRAINT chk_counts_non_negative
+    CHECK (
+        total_files >= 0
+        AND total_records >= 0
+        AND processed_records >= 0
+        AND success_records >= 0
+        AND failed_records >= 0
+    ),
+
+-- Aggregate counters: logical consistency
+ADD CONSTRAINT chk_counts_consistency
+    CHECK (
+        success_records + failed_records <= processed_records
+        AND processed_records <= total_records
+    ),
+
+-- Status ↔ count semantics
+ADD CONSTRAINT chk_failed_status
+    CHECK (
+        status <> 'FAILED'
+        OR failed_records > 0
+    ),
+
+ADD CONSTRAINT chk_success_status
+    CHECK (
+        status <> 'SUCCESS'
+        OR failed_records = 0
+    ),
+
+ADD CONSTRAINT chk_partial_status
+    CHECK (
+        status <> 'PARTIAL'
+        OR (success_records > 0 AND failed_records > 0)
+    ),
+
+-- JSONB shape guardrail
+ADD CONSTRAINT chk_file_details_shape
+    CHECK (
+        file_execution_details ? 'files'
+    );
+
+
