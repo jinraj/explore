@@ -1,89 +1,183 @@
-CREATE TABLE member_activity (
-    -- Surrogate identity
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+Sure. The implementation can be summarized into these steps:
 
-    -- Natural business key (idempotency)
-    member_id                VARCHAR(50) NOT NULL,
-    icario_enrollment_id     UUID NOT NULL,
-    program_id               UUID NOT NULL,
-    activity_code            VARCHAR(50) NOT NULL,
+1. **File Processor sends validated data to Rewards Service**
 
-    -- Activity linkage
-    contact_event_id         UUID NULL,        -- links OAF ↔ ARF
-    survey_id                UUID NULL,        -- if activity is survey-based
+   * File Processor has already validated headers/values.
+   * Example:
 
-    -- Activity outcome
-    activity_status          VARCHAR(30) NOT NULL,  -- COMPLETED | INCOMPLETE | INVALID
-    activity_completed_at    TIMESTAMP WITH TIME ZONE NULL,
+   ```json
+   {
+     "memberId": 12345,
+     "programId": "WELLNESS",
+     "activityCode": "ABC",
+     "completionDate": "2026-09-15",
+     "claimId": "CLM001",
+     "providerName": "Provider A",
+     "providerLocation": "Bangalore"
+   }
+   ```
 
-    -- Source & timing
-    activity_source          VARCHAR(30) NOT NULL,  -- BATCH | API
-    source_event_timestamp   TIMESTAMP WITH TIME ZONE NOT NULL,
+2. **Rewards Service finds the member activity**
 
-    -- Enrollment context (important for rewards)
-    enrollment_event_type    VARCHAR(30) NULL,      -- New | Renewal | Cancel
-    enrollment_status        VARCHAR(30) NULL,      -- ENROLLED | DISENROLLED
+   * Look up `rewards_member_activities`.
+   * Example:
 
-    -- Segmentation / business context
-    protocol                 VARCHAR(20) NULL,
-    reporting_segment        VARCHAR(20) NULL,
-    plan_contract_id         VARCHAR(50) NULL,
+   ```text
+   memberId = 12345
+   programId = WELLNESS
+   activityCode = ABC
 
-    -- Execution traceability
-    execution_id             UUID NOT NULL,          -- from job_execution_event
-    correlation_id           UUID NOT NULL,
+   → activityId = 5678
+   → activityStatus = ELIGIBLE
+   ```
 
-    -- Audit
-    created_at               TIMESTAMP WITH TIME ZONE DEFAULT now(),
+3. **Read the activity's fulfillment requirements snapshot**
 
-    -- Idempotency protection
-    CONSTRAINT uq_member_activity
-        UNIQUE (
-            member_id,
-            icario_enrollment_id,
-            program_id,
-            activity_code
-        )
-);
+   * Use `fulfillment_requirements` stored against the member activity.
+   * Example:
 
+   ```json
+   {
+     "rules": [
+       {
+         "ruleId": 101,
+         "ruleType": "COMPLETION_PROOF",
+         "ruleOrder": 1,
+         "required": true
+       },
+       {
+         "ruleId": 102,
+         "ruleType": "REDEEM",
+         "ruleOrder": 2,
+         "required": true
+       }
+     ]
+   }
+   ```
 
-CREATE TABLE reward_calculation (
-    -- Surrogate identity
-    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+4. **Validate that this fulfillment is applicable**
 
-    -- Activity reference (the anchor)
-    member_activity_id UUID NOT NULL,
+   * Incoming type = `COMPLETION_PROOF`.
+   * Check that `COMPLETION_PROOF` is required for activity `5678`.
+   * If not required → reject/skip the request.
 
-    -- Natural idempotency (activity + rule version)
-    reward_rule_id      VARCHAR(50) NOT NULL,
-    reward_rule_version VARCHAR(20) NOT NULL,
+5. **Persist the completion proof**
 
-    -- Calculation outcome
-    eligibility_status  VARCHAR(30) NOT NULL,   -- ELIGIBLE | INELIGIBLE
-    reward_type         VARCHAR(30) NOT NULL,   -- POINTS | DOLLAR | GIFT_CARD | etc.
-    reward_amount       NUMERIC(10,2) NOT NULL DEFAULT 0,
+   * Prefer a generic fulfillment table rather than adding claim-specific columns to the activity table.
+   * Example:
 
-    -- Calculation reasoning (VERY IMPORTANT)
-    calculation_reason  VARCHAR(255) NULL,
-    calculation_details JSONB NULL,
+   ```text
+   activityId       = 5678
+   ruleType         = COMPLETION_PROOF
+   status           = COMPLETED
+   source           = CLAIMS_DATA
+   fulfillmentData  =
+   {
+     "claimId": "CLM001",
+     "completionDate": "2026-09-15",
+     "providerName": "Provider A",
+     "providerLocation": "Bangalore"
+   }
+   ```
 
-    -- Execution context
-    execution_id        UUID NOT NULL,
-    correlation_id      UUID NOT NULL,
-    calculated_at       TIMESTAMP WITH TIME ZONE NOT NULL,
+6. **Evaluate all fulfillment requirements**
 
-    -- Issuance linkage (filled later)
-    issuance_status     VARCHAR(30) NOT NULL DEFAULT 'NOT_ISSUED',
-    issuance_id         UUID NULL,
+   * Example after completion proof arrives:
 
-    -- Audit
-    created_at          TIMESTAMP WITH TIME ZONE DEFAULT now(),
+   ```text
+   COMPLETION_PROOF = COMPLETED ✓
+   REDEEM           = NOT COMPLETED ✗
+   ```
 
-    -- Idempotency guarantee
-    CONSTRAINT uq_reward_calc
-        UNIQUE (
-            member_activity_id,
-            reward_rule_id,
-            reward_rule_version
-        )
-);
+   * Therefore:
+
+   ```text
+   activityStatus = ELIGIBLE
+   ```
+
+7. **Complete the activity only when all required fulfillments are satisfied**
+
+   * Later, if redeem is completed:
+
+   ```text
+   COMPLETION_PROOF = COMPLETED ✓
+   REDEEM           = COMPLETED ✓
+   ```
+
+   Then:
+
+   ```text
+   activityStatus = COMPLETED
+   ```
+
+8. **Trigger the existing reward issuance flow**
+
+   * Once activity becomes `COMPLETED`:
+
+   ```text
+   Activity COMPLETED
+        ↓
+   Reward Issuance
+        ↓
+   Partner API
+   ```
+
+   The completion-proof flow itself should **not directly call Partner API**.
+
+9. **Make the fulfillment processing generic**
+
+   * The same framework should support:
+
+   ```text
+   COMPLETION_PROOF
+   MEMBER_PROOF
+   SELF_ATTESTATION
+   REDEEM
+   ```
+
+   Example:
+
+   ```json
+   {
+     "fulfillmentType": "COMPLETION_PROOF",
+     "source": "CLAIMS_DATA",
+     "fulfillmentData": { "...": "..." }
+   }
+   ```
+
+   Later:
+
+   ```json
+   {
+     "fulfillmentType": "MEMBER_PROOF",
+     "source": "MEMBER_PORTAL",
+     "fulfillmentData": { "...": "..." }
+   }
+   ```
+
+10. **Keep the DB operation transactional and idempotent**
+
+    * Persist fulfillment + evaluate requirements + update activity status in one DB transaction.
+    * Same `claimId` arriving again should not create duplicate fulfillment.
+    * Example:
+
+    ```text
+    CLM001 → first request → create
+    CLM001 → duplicate request → recognize existing fulfillment
+    ```
+
+**In one line:**
+
+```text
+File Processor
+ → Generic Fulfillment API
+ → Find Member Activity
+ → Read Fulfillment Snapshot
+ → Validate
+ → Persist Fulfillment
+ → Evaluate All Rules
+ → Complete Activity if all satisfied
+ → Existing Reward Issuance Flow
+```
+
+The key DB gap to address first is the **persistence of individual fulfillment/proof records**, because the current `rewards_member_activities` schema has provider/completion fields but no claim/proof ID or generic fulfillment-record table. 
