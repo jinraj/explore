@@ -1,183 +1,89 @@
-Sure. The implementation can be summarized into these steps:
+Implement the Claims Proof submission flow in the Rewards Service.
 
-1. **File Processor sends validated data to Rewards Service**
+Scope:
+- Implement ONLY Claims Proof processing.
+- Do NOT implement self-attestation, redeem, member proof, or other fulfillment types.
+- Do NOT implement activity assignment logic yet.
+- Follow the existing project architecture, coding conventions, service/repository patterns, GraphQL/API patterns, exception handling, and transaction patterns.
 
-   * File Processor has already validated headers/values.
-   * Example:
+Functional flow:
 
-   ```json
-   {
-     "memberId": 12345,
-     "programId": "WELLNESS",
-     "activityCode": "ABC",
-     "completionDate": "2026-09-15",
-     "claimId": "CLM001",
-     "providerName": "Provider A",
-     "providerLocation": "Bangalore"
-   }
-   ```
+1. Add a Claims Proof submission API/service operation in Rewards Service.
+2. The request should contain the information required to identify the member activity:
+   - memberId
+   - programId
+   - activityCode
+   - completionDate
+   - claimId
+   - providerName
+   - providerLocation
+   - source
+3. Find the corresponding member activity using the existing member/activity identification pattern.
+4. Validate that the member activity exists and can accept a Claims Proof fulfillment.
+5. Read the activity's `fulfillment_requirements` JSONB.
+6. Locate the fulfillment whose `rule.fulfillmentType` is `CLAIMS_PROOF`.
+7. Update only the runtime state of that Claims Proof fulfillment:
+   - status = COMPLETED
+   - completionSource = source
+   - completedAt = completionDate
+   - completionInfo = {
+       referenceId: claimId,
+       completionDate: completionDate,
+       providerName: providerName,
+       providerLocation: providerLocation
+     }
+8. After updating the Claims Proof fulfillment, evaluate the fulfillment requirements:
+   - If all required fulfillments are completed:
+       - fulfillment_status = COMPLETED
+       - activity_status = COMPLETED
+       - invoke the existing reward issuance flow.
+   - Otherwise:
+       - fulfillment_status = PENDING
+       - keep the activity status unchanged.
+9. Do not modify reward_status directly. Use the existing reward issuance flow.
 
-2. **Rewards Service finds the member activity**
+Fulfillment JSON structure to support:
 
-   * Look up `rewards_member_activities`.
-   * Example:
+{
+  "fulfillments": [
+    {
+      "rule": {
+        "fulfillmentType": "CLAIMS_PROOF",
+        "required": true,
+        "ruleOrder": 1
+        // remaining rule definition fields are preserved
+      },
+      "status": "PENDING",
+      "completionSource": null,
+      "completedAt": null,
+      "completionInfo": null
+    }
+  ]
+}
 
-   ```text
-   memberId = 12345
-   programId = WELLNESS
-   activityCode = ABC
+Important:
+- `rule` contains the rule-definition snapshot.
+- Do NOT introduce `ruleId` lookup for processing. The full rule definition is expected to be stored in the member activity JSONB.
+- Do not add a separate fulfillment table.
+- Keep `fulfillment_status` as a physical column on `rewards_member_activities`.
+- Do not add `fulfillmentStatus` inside the JSONB; the physical column is the source of truth for overall fulfillment status.
+- Claims Proof is the only fulfillment type that needs to be processed in this implementation.
 
-   → activityId = 5678
-   → activityStatus = ELIGIBLE
-   ```
+Database migration:
+- Add a DB migration script for the required changes to `rewards_member_activities`.
+- Add:
+    1. `fulfillment_status`
+    2. `fulfillment_requirements` JSONB
+- Use the project's existing migration naming, formatting, and conventions.
+- Set appropriate default/nullability based on existing project conventions.
+- Update the corresponding entity/model/repository mappings.
 
-3. **Read the activity's fulfillment requirements snapshot**
+Implementation requirements:
+- Reuse existing member activity lookup and reward issuance functionality wherever possible.
+- Keep the implementation extensible so additional fulfillment types can be added later, but do not implement them now.
+- Handle duplicate/repeated Claims Proof submissions safely according to the project's existing idempotency/error-handling patterns.
+- Use a transaction for the Claims Proof update and activity/fulfillment status evaluation.
+- Add/update unit and integration tests following the existing project test patterns.
+- Do not make unrelated changes.
 
-   * Use `fulfillment_requirements` stored against the member activity.
-   * Example:
-
-   ```json
-   {
-     "rules": [
-       {
-         "ruleId": 101,
-         "ruleType": "COMPLETION_PROOF",
-         "ruleOrder": 1,
-         "required": true
-       },
-       {
-         "ruleId": 102,
-         "ruleType": "REDEEM",
-         "ruleOrder": 2,
-         "required": true
-       }
-     ]
-   }
-   ```
-
-4. **Validate that this fulfillment is applicable**
-
-   * Incoming type = `COMPLETION_PROOF`.
-   * Check that `COMPLETION_PROOF` is required for activity `5678`.
-   * If not required → reject/skip the request.
-
-5. **Persist the completion proof**
-
-   * Prefer a generic fulfillment table rather than adding claim-specific columns to the activity table.
-   * Example:
-
-   ```text
-   activityId       = 5678
-   ruleType         = COMPLETION_PROOF
-   status           = COMPLETED
-   source           = CLAIMS_DATA
-   fulfillmentData  =
-   {
-     "claimId": "CLM001",
-     "completionDate": "2026-09-15",
-     "providerName": "Provider A",
-     "providerLocation": "Bangalore"
-   }
-   ```
-
-6. **Evaluate all fulfillment requirements**
-
-   * Example after completion proof arrives:
-
-   ```text
-   COMPLETION_PROOF = COMPLETED ✓
-   REDEEM           = NOT COMPLETED ✗
-   ```
-
-   * Therefore:
-
-   ```text
-   activityStatus = ELIGIBLE
-   ```
-
-7. **Complete the activity only when all required fulfillments are satisfied**
-
-   * Later, if redeem is completed:
-
-   ```text
-   COMPLETION_PROOF = COMPLETED ✓
-   REDEEM           = COMPLETED ✓
-   ```
-
-   Then:
-
-   ```text
-   activityStatus = COMPLETED
-   ```
-
-8. **Trigger the existing reward issuance flow**
-
-   * Once activity becomes `COMPLETED`:
-
-   ```text
-   Activity COMPLETED
-        ↓
-   Reward Issuance
-        ↓
-   Partner API
-   ```
-
-   The completion-proof flow itself should **not directly call Partner API**.
-
-9. **Make the fulfillment processing generic**
-
-   * The same framework should support:
-
-   ```text
-   COMPLETION_PROOF
-   MEMBER_PROOF
-   SELF_ATTESTATION
-   REDEEM
-   ```
-
-   Example:
-
-   ```json
-   {
-     "fulfillmentType": "COMPLETION_PROOF",
-     "source": "CLAIMS_DATA",
-     "fulfillmentData": { "...": "..." }
-   }
-   ```
-
-   Later:
-
-   ```json
-   {
-     "fulfillmentType": "MEMBER_PROOF",
-     "source": "MEMBER_PORTAL",
-     "fulfillmentData": { "...": "..." }
-   }
-   ```
-
-10. **Keep the DB operation transactional and idempotent**
-
-    * Persist fulfillment + evaluate requirements + update activity status in one DB transaction.
-    * Same `claimId` arriving again should not create duplicate fulfillment.
-    * Example:
-
-    ```text
-    CLM001 → first request → create
-    CLM001 → duplicate request → recognize existing fulfillment
-    ```
-
-**In one line:**
-
-```text
-File Processor
- → Generic Fulfillment API
- → Find Member Activity
- → Read Fulfillment Snapshot
- → Validate
- → Persist Fulfillment
- → Evaluate All Rules
- → Complete Activity if all satisfied
- → Existing Reward Issuance Flow
-```
-
-The key DB gap to address first is the **persistence of individual fulfillment/proof records**, because the current `rewards_member_activities` schema has provider/completion fields but no claim/proof ID or generic fulfillment-record table. 
+Before coding, inspect the existing Rewards Service codebase and identify the appropriate controller/GraphQL resolver, service, repository, entity, migration, exception, and test locations. Then implement the changes in those existing patterns.
