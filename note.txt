@@ -1,89 +1,261 @@
-Implement the Claims Proof submission flow in the Rewards Service.
+REWARDS AI CHATBOT — SAMPLE CONVERSATIONS
 
-Scope:
-- Implement ONLY Claims Proof processing.
-- Do NOT implement self-attestation, redeem, member proof, or other fulfillment types.
-- Do NOT implement activity assignment logic yet.
-- Follow the existing project architecture, coding conventions, service/repository patterns, GraphQL/API patterns, exception handling, and transaction patterns.
+==================================================
+CONVERSATION 1 — WHAT IS MY REWARDS STATUS?
+==================================================
 
-Functional flow:
+USER:
+What is my rewards status?
 
-1. Add a Claims Proof submission API/service operation in Rewards Service.
-2. The request should contain the information required to identify the member activity:
-   - memberId
-   - programId
-   - activityCode
-   - completionDate
-   - claimId
-   - providerName
-   - providerLocation
-   - source
-3. Find the corresponding member activity using the existing member/activity identification pattern.
-4. Validate that the member activity exists and can accept a Claims Proof fulfillment.
-5. Read the activity's `fulfillment_requirements` JSONB.
-6. Locate the fulfillment whose `rule.fulfillmentType` is `CLAIMS_PROOF`.
-7. Update only the runtime state of that Claims Proof fulfillment:
-   - status = COMPLETED
-   - completionSource = source
-   - completedAt = completionDate
-   - completionInfo = {
-       referenceId: claimId,
-       completionDate: completionDate,
-       providerName: providerName,
-       providerLocation: providerLocation
-     }
-8. After updating the Claims Proof fulfillment, evaluate the fulfillment requirements:
-   - If all required fulfillments are completed:
-       - fulfillment_status = COMPLETED
-       - activity_status = COMPLETED
-       - invoke the existing reward issuance flow.
-   - Otherwise:
-       - fulfillment_status = PENDING
-       - keep the activity status unchanged.
-9. Do not modify reward_status directly. Use the existing reward issuance flow.
+CHATBOT:
+Here’s a quick overview of your Rewards:
 
-Fulfillment JSON structure to support:
+🟢 2 — Available to complete
+🔵 2 — Completed
+⚪ 1 — Expired
 
-{
-  "fulfillments": [
-    {
-      "rule": {
-        "fulfillmentType": "CLAIMS_PROOF",
-        "required": true,
-        "ruleOrder": 1
-        // remaining rule definition fields are preserved
-      },
-      "status": "PENDING",
-      "completionSource": null,
-      "completedAt": null,
-      "completionInfo": null
-    }
-  ]
-}
+You currently have 2 activities available to complete.
 
-Important:
-- `rule` contains the rule-definition snapshot.
-- Do NOT introduce `ruleId` lookup for processing. The full rule definition is expected to be stored in the member activity JSONB.
-- Do not add a separate fulfillment table.
-- Keep `fulfillment_status` as a physical column on `rewards_member_activities`.
-- Do not add `fulfillmentStatus` inside the JSONB; the physical column is the source of truth for overall fulfillment status.
-- Claims Proof is the only fulfillment type that needs to be processed in this implementation.
+Would you like me to show you which activities are currently available?
 
-Database migration:
-- Add a DB migration script for the required changes to `rewards_member_activities`.
-- Add:
-    1. `fulfillment_status`
-    2. `fulfillment_requirements` JSONB
-- Use the project's existing migration naming, formatting, and conventions.
-- Set appropriate default/nullability based on existing project conventions.
-- Update the corresponding entity/model/repository mappings.
+SYSTEM:
+- This is a member-specific question.
+- Call the Rewards GraphQL API to retrieve the member’s high-level activity summary.
+- Use the activity summary counts for Available/Eligible, Completed, and Expired.
+- Do not show reward amounts.
+- Keep the response high-level.
+- Proactively ask whether the member wants to see the currently available activities.
 
-Implementation requirements:
-- Reuse existing member activity lookup and reward issuance functionality wherever possible.
-- Keep the implementation extensible so additional fulfillment types can be added later, but do not implement them now.
-- Handle duplicate/repeated Claims Proof submissions safely according to the project's existing idempotency/error-handling patterns.
-- Use a transaction for the Claims Proof update and activity/fulfillment status evaluation.
-- Add/update unit and integration tests following the existing project test patterns.
-- Do not make unrelated changes.
 
-Before coding, inspect the existing Rewards Service codebase and identify the appropriate controller/GraphQL resolver, service, repository, entity, migration, exception, and test locations. Then implement the changes in those existing patterns.
+USER:
+Yes, show me the activities that are currently available.
+
+CHATBOT:
+You currently have 2 activities available to complete:
+
+1. Annual Wellness Visit
+   Status: Available to complete
+
+2. Health Assessment
+   Status: Available to complete
+
+Would you like to know how to complete one of these activities?
+
+SYSTEM:
+- Call the Rewards API for the member’s activity information.
+- Show only activity name and high-level status.
+- Do not show reward amounts or detailed reward information.
+- Do not provide detailed completion instructions.
+- Ask a proactive follow-up question.
+
+
+USER:
+How do I complete the Annual Wellness Visit?
+
+CHATBOT:
+You can complete the activity by following the requirements for the Annual Wellness Visit.
+
+For the complete instructions, required steps, and information you may need to submit, please use the HP Plus app.
+
+[Go to HP Plus]
+
+You can log in or register in HP Plus to view the complete activity details and next steps.
+
+Need additional help? [Call CRM]
+
+SYSTEM:
+- Detailed activity instructions should be handled by HP Plus.
+- Do not attempt to reproduce the complete activity requirements in the chatbot.
+- Provide a clear HP Plus CTA.
+- Tell the member they can log in or register.
+- Show the Call CRM option at the end.
+
+
+==================================================
+CONVERSATION 2 — HOW DO I COMPLETE MY ACTIVITY?
+==================================================
+
+USER:
+How do I complete my activity?
+
+CHATBOT:
+Activities are completed by following the requirements associated with the activity. Depending on the activity, you may also need to provide completion information or an attestation.
+
+Would you like me to check whether you currently have any activities waiting for you?
+
+SYSTEM:
+- This is a general Rewards question.
+- Use the Rewards knowledge base for the general explanation.
+- Do not provide detailed activity-specific instructions.
+- Proactively offer to check the member’s current activities.
+
+
+USER:
+Yes, check for me.
+
+CHATBOT:
+You currently have 2 activities available to complete:
+
+1. Annual Wellness Visit
+   Status: Available to complete
+
+2. Health Assessment
+   Status: Available to complete
+
+For complete instructions and the steps required for each activity, please use the HP Plus app.
+
+[Go to HP Plus]
+
+You can log in or register in HP Plus to view the complete activity details and next steps.
+
+Need additional help? [Call CRM]
+
+SYSTEM:
+- Call the Rewards GraphQL API for the member’s current activity status.
+- Show only high-level activity information.
+- Route detailed instructions to HP Plus.
+- Do not show reward amounts.
+- Include the HP Plus CTA and Call CRM option.
+
+
+==================================================
+CONVERSATION 3 — WHAT HAPPENED TO MY COMPLETED ACTIVITY?
+==================================================
+
+USER:
+What happened to my completed activity?
+
+CHATBOT:
+Here’s a quick overview of your Rewards:
+
+🟢 2 — Available to complete
+🔵 2 — Completed
+⚪ 1 — Expired
+
+You currently have 2 completed activities.
+
+Would you like me to tell you more about your completed activities?
+
+SYSTEM:
+- Use the Rewards GraphQL API to retrieve the member’s high-level activity summary.
+- Show counts/statuses only.
+- Do not show reward amounts.
+- Do not provide detailed reward information.
+- Ask whether the member wants to continue.
+
+
+USER:
+Yes, show me my completed activities.
+
+CHATBOT:
+You have 2 completed activities.
+
+1. Annual Wellness Visit
+   Status: Completed
+
+2. Health Assessment
+   Status: Completed
+
+Would you like to know what you need to do next to view your reward details?
+
+SYSTEM:
+- Retrieve the member’s completed activity information from the Rewards API.
+- Show activity names and high-level status only.
+- Do not show reward amounts.
+- Do not provide detailed reward status or redemption information.
+- Route deeper reward information to HP Plus.
+
+
+USER:
+Yes.
+
+CHATBOT:
+For complete reward information, including detailed reward status and available actions, please use the HP Plus app.
+
+[Go to HP Plus]
+
+You can log in or register in HP Plus to view your complete reward information and available options.
+
+Need additional help? [Call CRM]
+
+SYSTEM:
+- Detailed reward information must be handled by HP Plus.
+- The chatbot should not display reward amounts.
+- The chatbot should not handle reward redemption.
+- Provide the HP Plus CTA.
+- Provide the Call CRM option at the end.
+
+
+==================================================
+CONVERSATION 4 — HOW MUCH REWARD DID I EARN?
+==================================================
+
+USER:
+How much reward did I earn?
+
+CHATBOT:
+For your complete reward details, please use the HP Plus app.
+
+[Go to HP Plus]
+
+You can log in or register in HP Plus to view your reward information and available options.
+
+Need additional help? [Call CRM]
+
+SYSTEM:
+- Do not answer reward amount questions from the chatbot.
+- Route the member to HP Plus.
+- Do not expose reward amounts in the chatbot.
+- Provide login/register guidance.
+- Provide the HP Plus CTA and Call CRM option.
+
+
+==================================================
+CONVERSATION 5 — REDEEM MY REWARD
+==================================================
+
+USER:
+How do I redeem my reward?
+
+CHATBOT:
+To view your reward details and complete the redemption process, please use the HP Plus app.
+
+[Go to HP Plus]
+
+You can log in or register in HP Plus to view your available reward options and complete the next steps.
+
+Need additional help? [Call CRM]
+
+SYSTEM:
+- Reward redemption is handled through HP Plus.
+- Do not attempt to complete redemption through the chatbot.
+- Do not provide detailed redemption instructions.
+- Provide the HP Plus CTA.
+- Provide the Call CRM option.
+
+
+==================================================
+GENERAL CHATBOT BEHAVIOR
+==================================================
+
+SYSTEM:
+The chatbot is a high-level Rewards guide and router. It does not replace the HP Plus app.
+
+The chatbot should:
+
+1. Answer general Rewards questions using the Rewards knowledge base.
+2. Use Rewards GraphQL APIs for high-level, member-specific information such as:
+   - Available/eligible activity count
+   - Completed activity count
+   - Expired activity count
+   - High-level activity status
+3. Do not show reward amounts.
+4. Do not provide detailed activity instructions.
+5. Do not provide detailed reward information.
+6. Do not perform reward redemption.
+7. For detailed information or actions, route the member to HP Plus.
+8. Tell the member they can log in or register in HP Plus.
+9. Use proactive follow-up questions to continue the conversation naturally.
+10. At the end of a completed interaction, provide the Call CRM option for additional help.
+11. The chatbot should make Rewards easier to understand and help the member get to the right place faster.
+12. React UI should present the HP Plus action as a clear CTA, such as [Go to HP Plus] or [Open HP Plus].
