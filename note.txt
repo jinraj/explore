@@ -1,261 +1,687 @@
-REWARDS AI CHATBOT — SAMPLE CONVERSATIONS
+You are working inside the existing Rewards chatbot application in this GitHub repository.
+
+I want you to implement ONLY the Intent Classifier part of the chatbot flow.
+
+Do NOT implement the Response Formatter LLM, React UI, Rewards GraphQL execution client, or end-to-end chatbot response flow yet unless an existing class/interface requires a minimal change for compilation.
+
+First inspect the existing project structure carefully, especially:
+
+* service/
+* model/
+* ports/
+* prompting engine / prompt engine classes
+* existing configuration classes
+* existing LLM client/adapter interfaces
+* existing YAML configuration patterns
+* existing tests
+
+Reuse the existing architecture and naming conventions. Do not create a parallel architecture if an equivalent abstraction already exists.
 
 ==================================================
-CONVERSATION 1 — WHAT IS MY REWARDS STATUS?
-==================================================
+GOAL
+====
 
-USER:
-What is my rewards status?
+The Intent Classifier receives a user's natural-language Rewards question and determines:
 
-CHATBOT:
-Here’s a quick overview of your Rewards:
+1. What the user is asking.
+2. Which route should handle the request:
 
-🟢 2 — Available to complete
-🔵 2 — Completed
-⚪ 1 — Expired
+   * STATIC
+   * DYNAMIC
+   * HP_PLUS
+   * UNKNOWN
+3. Which data source is required:
 
-You currently have 2 activities available to complete.
+   * KNOWLEDGE_BASE
+   * REWARDS_GRAPHQL
+   * HP_PLUS
+   * NONE
+4. If the request is dynamic, identify the appropriate GraphQL query from the supplied READ-ONLY GraphQL schema.
+5. Dynamically determine the required GraphQL input variables based on the user's question and available schema.
+6. Dynamically determine the response fields required to answer the user's question.
+7. Generate the GraphQL query and variables using ONLY fields, arguments, input types, enums and operations that actually exist in the supplied GraphQL schema.
+8. Never generate or use GraphQL mutations.
+9. Never invent GraphQL fields, arguments, input parameters, enum values, or query names.
+10. If the requested information cannot be obtained from the available schema/data sources, return a controlled UNKNOWN/UNSUPPORTED result rather than inventing anything.
 
-Would you like me to show you which activities are currently available?
-
-SYSTEM:
-- This is a member-specific question.
-- Call the Rewards GraphQL API to retrieve the member’s high-level activity summary.
-- Use the activity summary counts for Available/Eligible, Completed, and Expired.
-- Do not show reward amounts.
-- Keep the response high-level.
-- Proactively ask whether the member wants to see the currently available activities.
-
-
-USER:
-Yes, show me the activities that are currently available.
-
-CHATBOT:
-You currently have 2 activities available to complete:
-
-1. Annual Wellness Visit
-   Status: Available to complete
-
-2. Health Assessment
-   Status: Available to complete
-
-Would you like to know how to complete one of these activities?
-
-SYSTEM:
-- Call the Rewards API for the member’s activity information.
-- Show only activity name and high-level status.
-- Do not show reward amounts or detailed reward information.
-- Do not provide detailed completion instructions.
-- Ask a proactive follow-up question.
-
-
-USER:
-How do I complete the Annual Wellness Visit?
-
-CHATBOT:
-You can complete the activity by following the requirements for the Annual Wellness Visit.
-
-For the complete instructions, required steps, and information you may need to submit, please use the HP Plus app.
-
-[Go to HP Plus]
-
-You can log in or register in HP Plus to view the complete activity details and next steps.
-
-Need additional help? [Call CRM]
-
-SYSTEM:
-- Detailed activity instructions should be handled by HP Plus.
-- Do not attempt to reproduce the complete activity requirements in the chatbot.
-- Provide a clear HP Plus CTA.
-- Tell the member they can log in or register.
-- Show the Call CRM option at the end.
-
+The objective is to minimize hard-coded business-specific routing logic in Java. The LLM should use the supplied schema and intent examples to dynamically determine the appropriate read query, variables, filters and response fields.
 
 ==================================================
-CONVERSATION 2 — HOW DO I COMPLETE MY ACTIVITY?
-==================================================
+IMPORTANT ARCHITECTURAL PRINCIPLE
+=================================
 
-USER:
-How do I complete my activity?
+Do NOT hard-code every possible natural-language variation into Java.
 
-CHATBOT:
-Activities are completed by following the requirements associated with the activity. Depending on the activity, you may also need to provide completion information or an attestation.
+For example, do not create separate Java intents for:
 
-Would you like me to check whether you currently have any activities waiting for you?
+* GET_AVAILABLE_ACTIVITIES
+* GET_COMPLETED_ACTIVITIES
+* GET_EXPIRED_ACTIVITIES
+* GET_ACTIVITIES_NEXT_TWO_WEEKS
+* GET_ACTIVITIES_THIS_MONTH
+* GET_ACTIVITIES_NEXT_MONTH
 
-SYSTEM:
-- This is a general Rewards question.
-- Use the Rewards knowledge base for the general explanation.
-- Do not provide detailed activity-specific instructions.
-- Proactively offer to check the member’s current activities.
+Instead use broad meaningful intents and let the LLM extract parameters.
 
+Example:
 
-USER:
-Yes, check for me.
+User:
+"Do I have any activities I need to complete in the next two weeks?"
 
-CHATBOT:
-You currently have 2 activities available to complete:
+Possible classification:
 
-1. Annual Wellness Visit
-   Status: Available to complete
+intent = REWARDS_ACTIVITIES
+route = DYNAMIC
+dataSource = REWARDS_GRAPHQL
 
-2. Health Assessment
-   Status: Available to complete
+Then dynamically determine:
 
-For complete instructions and the steps required for each activity, please use the HP Plus app.
+* activity status/filter
+* date range
+* appropriate query
+* variables
+* response fields
 
-[Go to HP Plus]
+Use the current date supplied to the prompt when resolving relative dates such as:
 
-You can log in or register in HP Plus to view the complete activity details and next steps.
+* today
+* tomorrow
+* this week
+* next week
+* next two weeks
+* this month
+* next month
 
-Need additional help? [Call CRM]
-
-SYSTEM:
-- Call the Rewards GraphQL API for the member’s current activity status.
-- Show only high-level activity information.
-- Route detailed instructions to HP Plus.
-- Do not show reward amounts.
-- Include the HP Plus CTA and Call CRM option.
-
-
-==================================================
-CONVERSATION 3 — WHAT HAPPENED TO MY COMPLETED ACTIVITY?
-==================================================
-
-USER:
-What happened to my completed activity?
-
-CHATBOT:
-Here’s a quick overview of your Rewards:
-
-🟢 2 — Available to complete
-🔵 2 — Completed
-⚪ 1 — Expired
-
-You currently have 2 completed activities.
-
-Would you like me to tell you more about your completed activities?
-
-SYSTEM:
-- Use the Rewards GraphQL API to retrieve the member’s high-level activity summary.
-- Show counts/statuses only.
-- Do not show reward amounts.
-- Do not provide detailed reward information.
-- Ask whether the member wants to continue.
-
-
-USER:
-Yes, show me my completed activities.
-
-CHATBOT:
-You have 2 completed activities.
-
-1. Annual Wellness Visit
-   Status: Completed
-
-2. Health Assessment
-   Status: Completed
-
-Would you like to know what you need to do next to view your reward details?
-
-SYSTEM:
-- Retrieve the member’s completed activity information from the Rewards API.
-- Show activity names and high-level status only.
-- Do not show reward amounts.
-- Do not provide detailed reward status or redemption information.
-- Route deeper reward information to HP Plus.
-
-
-USER:
-Yes.
-
-CHATBOT:
-For complete reward information, including detailed reward status and available actions, please use the HP Plus app.
-
-[Go to HP Plus]
-
-You can log in or register in HP Plus to view your complete reward information and available options.
-
-Need additional help? [Call CRM]
-
-SYSTEM:
-- Detailed reward information must be handled by HP Plus.
-- The chatbot should not display reward amounts.
-- The chatbot should not handle reward redemption.
-- Provide the HP Plus CTA.
-- Provide the Call CRM option at the end.
-
+Do not hard-code those date combinations into Java.
 
 ==================================================
-CONVERSATION 4 — HOW MUCH REWARD DID I EARN?
+INTENT CATALOG
+==============
+
+Keep the initial intent catalog small and meaningful.
+
+STATIC:
+
+* REWARDS_OVERVIEW
+* ACTIVITY_OVERVIEW
+* ACTIVITY_COMPLETION
+* APP_ACCESS
+* REWARDS_HELP
+
+DYNAMIC:
+
+* REWARDS_SUMMARY
+* REWARDS_ACTIVITIES
+
+HP_PLUS:
+
+* REWARD_DETAILS
+* ACTIVITY_ACTION
+* REWARD_ACTION
+
+OTHER:
+
+* UNKNOWN
+
+The intent catalog must be configurable rather than hard-coded wherever practical.
+
+The classifier should understand multiple natural-language variations as the same intent.
+
+Examples:
+
+"What is Rewards?"
+"How does Rewards work?"
+"How can I earn rewards?"
+
+=> REWARDS_OVERVIEW
+
+"What is my rewards status?"
+"How many activities do I have?"
+"How many have I completed?"
+"Do I have anything available?"
+
+=> REWARDS_SUMMARY
+
+"Show me my available activities."
+"What activities do I have?"
+"Which activities have I completed?"
+"Do I have anything I need to complete in the next two weeks?"
+
+=> REWARDS_ACTIVITIES
+
+"How much reward did I earn?"
+"What is my reward amount?"
+"Show me my reward details."
+
+=> REWARD_DETAILS / HP_PLUS
+
+"How do I complete this activity?"
+"What do I need to submit?"
+"How do I attest?"
+"How do I submit proof?"
+
+=> ACTIVITY_ACTION / HP_PLUS
+
+"How do I redeem my reward?"
+"Where can I redeem my reward?"
+
+=> REWARD_ACTION / HP_PLUS
+
+These are examples, not an exhaustive list. The LLM must generalize to similar user questions.
+
 ==================================================
+CONFIGURATION REQUIREMENTS
+==========================
 
-USER:
-How much reward did I earn?
+Use YAML configuration for values that may change independently of application code.
 
-CHATBOT:
-For your complete reward details, please use the HP Plus app.
+Create or extend the existing configuration structure rather than inventing a second configuration mechanism.
 
-[Go to HP Plus]
+The configuration should contain, as appropriate:
 
-You can log in or register in HP Plus to view your reward information and available options.
+* classifier system instructions
+* classifier responsibilities
+* allowed routes
+* allowed data sources
+* intent catalog
+* intent descriptions
+* sample questions
+* routing rules
+* output format/schema instructions
+* model configuration if the existing project already manages model configuration this way
+* cache refresh interval
+* cache expiry/TTL
 
-Need additional help? [Call CRM]
+Do NOT put large dynamic GraphQL schema content directly into YAML.
 
-SYSTEM:
-- Do not answer reward amount questions from the chatbot.
-- Route the member to HP Plus.
-- Do not expose reward amounts in the chatbot.
-- Provide login/register guidance.
-- Provide the HP Plus CTA and Call CRM option.
+Do NOT put the full knowledge-base content directly into YAML.
 
-
-==================================================
-CONVERSATION 5 — REDEEM MY REWARD
-==================================================
-
-USER:
-How do I redeem my reward?
-
-CHATBOT:
-To view your reward details and complete the redemption process, please use the HP Plus app.
-
-[Go to HP Plus]
-
-You can log in or register in HP Plus to view your available reward options and complete the next steps.
-
-Need additional help? [Call CRM]
-
-SYSTEM:
-- Reward redemption is handled through HP Plus.
-- Do not attempt to complete redemption through the chatbot.
-- Do not provide detailed redemption instructions.
-- Provide the HP Plus CTA.
-- Provide the Call CRM option.
-
+Those are runtime data sources and should be loaded/cached separately.
 
 ==================================================
-GENERAL CHATBOT BEHAVIOR
+STATIC PROMPT CONTENT
+=====================
+
+Create a constant/system instruction resource for the Intent Classifier.
+
+It should clearly state:
+
+ROLE:
+You are the Intent Classifier for the Rewards Assistant.
+
+RESPONSIBILITIES:
+
+* Understand the user's natural-language request.
+* Identify the broad business intent.
+* Determine the appropriate route.
+* Determine the required data source.
+* For dynamic requests, inspect the supplied READ-ONLY GraphQL schema.
+* Select an existing GraphQL query.
+* Select only existing input arguments.
+* Select only existing input types and enum values.
+* Determine required variables from the user request and member context.
+* Determine the minimum response fields needed to answer the user.
+* Generate a valid GraphQL read query when required.
+* Use only schema-supported fields and arguments.
+
+STRICT RULES:
+
+1. READ-ONLY GraphQL ONLY.
+2. Never use Mutation.
+3. Never generate a mutation.
+4. Never invent a query.
+5. Never invent a field.
+6. Never invent an input argument.
+7. Never invent an enum value.
+8. Never invent a filter.
+9. Never invent a data source.
+10. Never assume a field exists if it is not present in the supplied schema.
+11. Use memberId/programId/subscriberId/householdId only when available from the request/context and supported by the selected query.
+12. Resolve relative dates using the current date provided in the prompt.
+13. Do not expose reward amount fields unless the configured business rules explicitly allow them. For the current chatbot scope, reward amount/detail questions must route to HP_PLUS.
+14. Do not provide detailed activity completion instructions through the dynamic route.
+15. If the requested information is not available through the supplied query schema, return UNKNOWN or route to HP_PLUS as appropriate.
+16. Do not explain internal reasoning.
+17. Return only the requested structured JSON response.
+
 ==================================================
+GRAPHQL SCHEMA
+==============
 
-SYSTEM:
-The chatbot is a high-level Rewards guide and router. It does not replace the HP Plus app.
+The application must provide the Intent Classifier with the current READ-ONLY GraphQL schema.
 
-The chatbot should:
+Use the existing rewards-service-graphql source/schema as the source of truth.
 
-1. Answer general Rewards questions using the Rewards knowledge base.
-2. Use Rewards GraphQL APIs for high-level, member-specific information such as:
-   - Available/eligible activity count
-   - Completed activity count
-   - Expired activity count
-   - High-level activity status
-3. Do not show reward amounts.
-4. Do not provide detailed activity instructions.
-5. Do not provide detailed reward information.
-6. Do not perform reward redemption.
-7. For detailed information or actions, route the member to HP Plus.
-8. Tell the member they can log in or register in HP Plus.
-9. Use proactive follow-up questions to continue the conversation naturally.
-10. At the end of a completed interaction, provide the Call CRM option for additional help.
-11. The chatbot should make Rewards easier to understand and help the member get to the right place faster.
-12. React UI should present the HP Plus action as a clear CTA, such as [Go to HP Plus] or [Open HP Plus].
+Only the Query portion and the dependent input/response types/enums required by those queries should be provided to the classifier.
+
+Do NOT provide Mutation definitions to the classifier.
+
+Do not manually reproduce or hard-code individual GraphQL query definitions in Java.
+
+The schema should be treated as runtime context so that if a new READ query is added to the schema, the classifier can potentially discover and use it without requiring a new Java intent implementation.
+
+The existing schema includes queries such as:
+
+* getMemberEligibility
+* getMemberActivities
+* earnRewardsActivityDetails
+* earnRewardsActivitySummary
+* earnRewardsEligiblePrograms
+* getProgramConfig
+* getProgramConfigs
+
+The classifier should inspect the supplied schema rather than relying on hard-coded assumptions.
+
+==================================================
+GRAPHQL QUERY GENERATION
+========================
+
+For a DYNAMIC request, the classifier output should contain:
+
+* intent
+* route
+* dataSource
+* selected GraphQL operation
+* GraphQL query
+* variables
+* selected response fields
+
+Example:
+
+User:
+"What is my rewards status?"
+
+Expected conceptual output:
+
+{
+"intent": "REWARDS_SUMMARY",
+"route": "DYNAMIC",
+"dataSource": "REWARDS_GRAPHQL",
+"graphql": {
+"operation": "earnRewardsActivitySummary",
+"query": "...",
+"variables": {
+"memberId": "...",
+"programId": "..."
+}
+},
+"responseFields": [
+"totalActivities",
+"eligibleActivities",
+"completedActivities",
+"expiredActivities"
+]
+}
+
+The exact GraphQL syntax must be generated from the supplied schema.
+
+Do not hard-code the above query into the implementation.
+
+==================================================
+DATE HANDLING
+=============
+
+The classifier must be able to extract temporal constraints from natural language.
+
+Example:
+
+User:
+"Are there any activities I need to complete in the next two weeks?"
+
+The prompt should provide:
+
+currentDate = <current date>
+
+The classifier should determine the corresponding date range and use only fields supported by the selected GraphQL query.
+
+Do not introduce a new GraphQL input field simply because the user used a natural-language date expression.
+
+Map natural-language requirements to existing schema-supported fields.
+
+If the selected query cannot support the requested date filtering, do not invent a field. Return an appropriate unsupported/unknown response or select another existing query that supports the requirement.
+
+==================================================
+KNOWLEDGE BASE
+==============
+
+The Knowledge Base is a separate runtime data source.
+
+It should NOT be hard-coded into Java.
+
+The application should support loading the knowledge-base content from the configured source and caching it locally.
+
+For the initial implementation, create an abstraction such as:
+
+KnowledgeBaseProvider
+
+or reuse an existing equivalent abstraction in the repository.
+
+The provider should support:
+
+* loading knowledge content
+* retrieving current cached content
+* refreshing content
+* cache expiry/refresh interval
+
+Do not implement a full database integration if the existing project does not already provide one.
+
+Create the abstraction so that the actual DB implementation can be plugged in later.
+
+==================================================
+GRAPHQL SCHEMA CACHE
+====================
+
+Treat the GraphQL read-only schema as a separately refreshable runtime resource.
+
+Create an abstraction similar to:
+
+GraphQLSchemaProvider
+
+or reuse an existing project abstraction if available.
+
+Responsibilities:
+
+* retrieve the current read-only GraphQL schema
+* cache it locally
+* refresh it according to configuration
+* expose the cached schema to the prompt builder
+
+The initial implementation may use a local/file-backed source if the actual database/configuration source is not already available.
+
+Do NOT query the database on every chatbot request.
+
+The intended future behavior is:
+
+Database / configured source
+↓
+Schema/Knowledge Base loader
+↓
+Local cache
+↓
+TTL / scheduled refresh
+↓
+Intent Classifier
+
+Make the refresh interval configurable in YAML.
+
+Example:
+
+chatbot:
+context:
+graphql-schema:
+refresh-interval: ...
+cache-enabled: true
+
+```
+knowledge-base:
+  refresh-interval: ...
+  cache-enabled: true
+```
+
+Use the existing project's configuration conventions rather than blindly creating these exact properties if another pattern already exists.
+
+==================================================
+PROMPT BUILDER
+==============
+
+Use the existing Prompt Engine / prompting engine in the repository.
+
+Do not bypass it.
+
+Create or extend the appropriate prompt-building abstraction.
+
+The generated Intent Classifier prompt should contain these logical sections:
+
+1. SYSTEM ROLE AND RESPONSIBILITIES
+2. ALLOWED INTENTS
+3. INTENT EXAMPLES
+4. ROUTING RULES
+5. KNOWLEDGE BASE CONTEXT
+6. READ-ONLY GRAPHQL SCHEMA
+7. MEMBER CONTEXT
+8. CURRENT DATE/TIME
+9. CONVERSATION CONTEXT, if already available
+10. USER QUERY
+11. OUTPUT FORMAT
+
+Keep these sections clearly separated.
+
+==================================================
+LLM CLIENT
+==========
+
+Reuse the existing LLM/AI client abstraction in the project.
+
+Do not create a new provider-specific implementation if one already exists.
+
+The Intent Classifier service should:
+
+1. Receive the user query and required member context.
+2. Build the dynamic classifier context.
+3. Build the Intent Classifier prompt using the existing Prompt Engine.
+4. Invoke the configured LLM model through the existing port/client.
+5. Parse the structured classifier response.
+6. Validate the response.
+7. Return a strongly typed IntentClassificationResponse.
+
+==================================================
+OUTPUT MODEL
+============
+
+Create/reuse a strongly typed model similar to:
+
+IntentClassificationResponse
+
+Suggested structure:
+
+{
+"intent": "...",
+"route": "STATIC | DYNAMIC | HP_PLUS | UNKNOWN",
+"dataSource": "KNOWLEDGE_BASE | REWARDS_GRAPHQL | HP_PLUS | NONE",
+"confidence": 0.0,
+"graphql": {
+"operation": "...",
+"query": "...",
+"variables": {}
+},
+"responseFields": [],
+"parameters": {}
+}
+
+Do not expose the raw LLM response throughout the application.
+
+Parse it into a domain model.
+
+For STATIC:
+
+* graphql should be null.
+
+For HP_PLUS:
+
+* graphql should be null.
+
+For UNKNOWN:
+
+* graphql should be null.
+
+For DYNAMIC:
+
+* graphql should contain the selected read operation, query and variables.
+
+==================================================
+VALIDATION
+==========
+
+Add validation after the LLM response is received.
+
+At minimum validate:
+
+* intent is one of the configured intents
+* route is allowed
+* dataSource is allowed
+* selected GraphQL operation exists in the supplied schema
+* operation is a Query, never a Mutation
+* all selected fields exist
+* all variables correspond to supported input arguments
+* enum values are valid
+* GraphQL query is syntactically parseable if an existing GraphQL parser/library is available
+* no mutation operation is present
+
+If validation fails:
+
+* do not call Rewards Service
+* return a controlled classification/validation failure
+* log the failure safely
+* never expose internal schema/prompt information to the end user
+
+Do not leak member data or prompt contents into logs.
+
+==================================================
+TESTING
+=======
+
+Add unit tests for the Intent Classifier and prompt generation.
+
+At minimum cover:
+
+STATIC:
+
+1. "What is Rewards?"
+2. "How does the Rewards program work?"
+3. "What is attestation?"
+
+DYNAMIC:
+4. "What is my rewards status?"
+5. "How many activities have I completed?"
+6. "How many activities do I have available?"
+7. "Show me my available activities."
+8. "Which activities have I completed?"
+9. "Do I have anything I need to complete in the next two weeks?"
+
+HP_PLUS:
+10. "How much reward did I earn?"
+11. "Show me my reward details."
+12. "How do I complete my activity?"
+13. "How do I submit my attestation?"
+14. "How do I redeem my reward?"
+
+UNKNOWN:
+15. An unrelated question such as "What is the weather today?"
+
+Also test:
+
+* relative date extraction
+* missing memberId
+* missing programId
+* unsupported GraphQL field
+* unsupported GraphQL operation
+* mutation returned by LLM
+* invalid JSON from LLM
+* invalid intent
+* invalid route
+* GraphQL validation failure
+
+Tests should verify both:
+
+1. generated prompt/context
+2. parsed classifier output
+
+Do not make tests depend on a live LLM unless the project already has an established integration-test pattern for this.
+
+==================================================
+NON-GOALS
+=========
+
+Do NOT implement:
+
+* React chatbot UI
+* Response Formatter LLM
+* final member-facing response generation
+* HP Plus integration
+* CRM integration
+* actual Rewards GraphQL execution if that client is not already required for this task
+* database implementation for Knowledge Base
+* database implementation for GraphQL schema
+* new Rewards Service APIs
+* GraphQL mutations
+* reward issuance
+* activity completion
+
+Only build the Intent Classifier pipeline and the abstractions needed to supply its context.
+
+==================================================
+IMPLEMENTATION APPROACH
+=======================
+
+Before changing code:
+
+1. Inspect the existing project structure.
+2. Identify the existing Prompt Engine.
+3. Identify existing service/model/ports patterns.
+4. Identify existing LLM client abstraction.
+5. Identify existing YAML configuration conventions.
+6. Identify existing caching/configuration abstractions.
+7. Reuse existing patterns wherever possible.
+
+Do not introduce unnecessary frameworks or dependencies.
+
+Prefer small, cohesive components.
+
+Suggested conceptual components:
+
+* IntentClassifierService
+* IntentClassifierPromptBuilder
+* IntentClassifierClient / existing LLM port
+* IntentClassificationResponse
+* IntentCatalog
+* GraphQLSchemaProvider
+* KnowledgeBaseProvider
+* ContextCache / existing cache abstraction
+
+Use the repository's existing naming conventions and architecture if equivalent components already exist.
+
+==================================================
+DELIVERABLE
+===========
+
+Implement the code in the existing repository.
+
+After implementation, provide a concise summary containing:
+
+1. Files/classes created.
+2. Files/classes modified.
+3. How the Intent Classifier flow works.
+4. YAML/configuration added.
+5. Prompt resources added.
+6. Cache/refresh behavior.
+7. Intent classifier output structure.
+8. Tests added.
+9. Any assumptions or places where the existing repository did not provide enough infrastructure.
+
+Do not implement the next chatbot stage yet.
+
+The completed flow for this task should be:
+
+User Query
+↓
+IntentClassifierService
+↓
+Context Builder
+├── Intent Catalog
+├── Knowledge Base cache
+├── READ-ONLY GraphQL schema cache
+├── Member context
+├── Current date/time
+└── Conversation context
+↓
+Existing Prompt Engine
+↓
+Intent Classifier LLM
+↓
+Structured IntentClassificationResponse
+↓
+Validation
+↓
+Return classifier result
+
+Stop at this point.
