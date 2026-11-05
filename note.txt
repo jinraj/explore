@@ -1,396 +1,81 @@
-# Spike Analysis: Fulfillment Source Validation
-
-**Project:** Rewards  
-**Components:** Rewards Service | File Processor | Activity Configuration  
-**Objective:** Define how fulfillment sources are configured, captured, and validated across all fulfillment channels.
-
----
-
-## 1. Spike objective
-
-Ensure every fulfillment request:
-
-- Identifies its originating business source.
-- Uses a source permitted for its fulfillment type.
-- Comes from an authorized integration.
-- Is validated against the member activity's fulfillment configuration.
-
-## 2. Current-state overview
-
-### Existing application flow
-
-```text
-Inbound Files                  API Requests
-     |                              |
-     v                              v
-File Processor              HBP / Other Clients
-     |                              |
-     +-------------+----------------+
-                   |
-                   v
-             Rewards Service
-                   |
-          Fulfillment Processing
-                   |
-                   v
-          Member Activity State
-```
-
-### Existing configuration components
-
-| Component | Current responsibility |
-|---|---|
-| `rule_attribute_catalog` | Defines rule attributes and allowed values. |
-| `fulfillment_rule` | Stores fulfillment configuration in activity mapping JSONB. |
-| `fulfillment_state` | Stores fulfillment state at member activity level. |
-| `CompletionSource` | Defines supported source enum values. |
-
-**Existing GraphQL fields:**
-- `FulfillmentRequirement` already exposes `allowedSources`.
-- `RuleConfigInput` currently does not accept `allowedSources`.
-
-**Design constraint:** Use `rule_attribute_catalog` and existing JSONB structures. No dependency on `rule_catalog`.
-
----
-
-## 3. Proposed design
-
-Use three configuration stages:
-
-Stage 1 — Define supported sources
-
-Table: rule_attribute_catalog
-
-Maintains the global list of valid fulfillment sources.
-
-Stage 2 — Configure sources per fulfillment type
-
-Column: earnrewards_program_activity_mapping.fulfillment_rule
-
-Stores the permitted source subset for each fulfillment requirement.
-
-Stage 3 — Snapshot the configuration
-
-Column: rewards_member_activities.fulfillment_state
-
-Preserves the permitted sources for the assigned member activity.
-
-rule_attribute_catalog
-  Supported source values
-          |
-          v
-Activity Configuration
-  Allowed sources per fulfillment type
-          |
-          v
-Member Activity Assignment
-  Snapshot allowed sources
-          |
-          v
-Fulfillment Submission
-          |
-          v
-Rewards Service Validation
-          |
-          v
-   Process / Reject
-
-## 4. Configuration details
-
-### 4.1 Define supported sources
-
-Add one attribute to `rule_attribute_catalog`.
-
-| Field | Proposed value |
-|---|---|
-| `rule_attribute_code` | `FULFILLMENT_SOURCE` |
-| `display_name` | `Fulfillment Source` |
-| `rule_type` | `SOURCE` |
-| `rule_group` | `FULFILLMENT` |
-| `data_type` | `STRING` |
-| `allowed_operators_json` | `["IN", "EQUALS"]` |
-| `allowed_values_json` | `["HBP", "CRM", "PSP", "ATHENA"]` |
-| `allowed_units_json` | `[]` |
-| `source_field` | `source` |
-| `status` | `ACTIVE` |
-
-<text color="secondary" size="xs">Proposed initial values; final source list requires business confirmation.</text>
-
-**Purpose:** Provide CCT with the supported source options. The catalog defines globally valid values, not the source permissions for an individual activity.
-
-### 4.2 Configure sources per fulfillment type
-
-Store the selected sources in each `fulfillment_rule` entry.
-
-**Example:**
-
-```json
-{
-  "rules": [
-    {
-      "ruleId": "101",
-      "ruleType": "SELF_ATTESTATION",
-      "ruleOrder": 1,
-      "required": true,
-      "allowedSources": ["HBP", "CRM", "PSP"]
-    },
-    {
-      "ruleId": "102",
-      "ruleType": "READING",
-      "ruleOrder": 2,
-      "required": true,
-      "allowedSources": ["ATHENA", "CRM"]
-    },
-    {
-      "ruleId": "103",
-      "ruleType": "COMPLETION_PROOF",
-      "ruleOrder": 3,
-      "required": true,
-      "allowedSources": ["CRM", "PSP"]
-    }
-  ]
-}
-```
-
-<text color="secondary" size="xs">Illustrative combinations only. Business owners must confirm the actual source-to-fulfillment mapping.</text>
-
-### 4.3 Snapshot sources during member activity assignment
-
-When a member activity is created:
-
-1. Read the configured fulfillment rules.
-2. Copy each rule and its `allowedSources`.
-3. Store the configuration in the member activity snapshot.
-4. Initialize fulfillment status as `PENDING`.
-
-**Example snapshot:**
-
-```json
-{
-  "fulfillmentStatus": "PENDING",
-  "fulfillments": [
-    {
-      "ruleId": "101",
-      "fulfillmentType": "SELF_ATTESTATION",
-      "required": true,
-      "allowedSources": ["HBP", "CRM", "PSP"],
-      "status": "PENDING"
-    }
-  ]
-}
-```
-
-**Key principle:** Runtime validation uses the member activity snapshot, not the latest activity mapping configuration.
-
----
-
-## 5. Fulfillment source validation
-
-Implement a common `FulfillmentSourceValidationService` in Rewards Service.
-
-### Validation flow
-
-```text
-Fulfillment Request
-        |
-        v
-Identify Member Activity
-        |
-        v
-Identify Fulfillment Type
-        |
-        v
-Read Snapshot Allowed Sources
-        |
-        v
-Is Source Present?
-   |             |
-  No            Yes
-   |             |
- Reject          v
-          Is Source Supported?
-             |          |
-            No         Yes
-             |          |
-           Reject       v
-                Is Source Allowed
-                for Fulfillment?
-                   |        |
-                  No       Yes
-                   |        |
-                 Reject     v
-                  Verify Authenticated
-                  Caller / Source
-                      |       |
-                     No      Yes
-                      |       |
-                    Reject  Process
-```
-
-### Validation rules
-
-| Validation | Expected behavior |
-|---|---|
-| Source missing | Reject |
-| Unsupported source | Reject |
-| Source not allowed for fulfillment type | Reject |
-| Source does not match authorized caller | Reject |
-| All checks pass | Continue fulfillment processing |
-
-**Security requirement:** A request's source field alone must not establish caller identity. Verify it against trusted authentication or integration context.
-
----
-
-## 6. Channel-specific source identification
-
-The ingestion channel and business source must be treated separately.
-
-| Channel | Source identification |
-|---|---|
-| File Processor | Resolve source from trusted file metadata or controlled integration configuration. |
-| GraphQL | Resolve caller identity from authenticated API context and validate submitted source. |
-| REST | Resolve caller identity from authenticated API context and validate submitted source. |
-
-```text
-                   Fulfillment
-                     Request
-                        |
-             +----------+----------+
-             |                     |
-             v                     v
-        File Ingestion          API Request
-             |                     |
-      Resolve file source     Resolve API caller
-             |                     |
-             +----------+----------+
-                        |
-                        v
-                Rewards Service
-                        |
-                Common Validation
-```
-
-**Important:** `FILE_PROCESSOR` identifies the ingestion channel, not necessarily the business source. Do not use it as a replacement for HBP, CRM, PSP, or ATHENA.
-
----
-
-## 7. GraphQL changes
-
-The existing response already exposes `allowedSources`. Extend the input to support configuration.
-
-**Proposed schema:**
-
-```graphql
-input RuleConfigInput {
-  ruleId: ID!
-  ruleType: String!
-  ruleOrder: Int!
-  required: Boolean
-  allowedSources: [CompletionSource!]
-}
-```
-
-Also verify:
-- Java input DTOs and response models.
-- Persistence and JSONB mapping.
-- Activity configuration create/update APIs.
-- Fulfillment submission request models.
-
-The existing `FulfillmentRequirement.allowedSources` response field should be populated from the saved member activity snapshot.
-
----
-
-## 8. Source naming and compatibility
-
-The current `CompletionSource` enum contains:
-
-```graphql
-enum CompletionSource {
-  MEMBER_PORTAL
-  HBP
-  MANUAL
-  CLAIMS_PROOF
-  PSP
-  CRM
-  ATHENA
-}
-```
-
-Before implementation, confirm:
-
-- Whether `HBP` is the canonical source value.
-- Whether `MEMBER_PORTAL` represents a separate source or a legacy alias.
-- Whether existing integrations depend on the current enum values.
-- Whether catalog values and API enum values will use identical codes.
-
-Avoid renaming or removing existing enum values without compatibility review.
-
----
-
-## 9. Open questions
-
-| # | Question requiring confirmation |
-|---|---|
-| 1 | What are the allowed sources for each fulfillment type? |
-| 2 | What is the canonical mapping for `HBP` and `MEMBER_PORTAL`? |
-| 3 | How will each integration's identity be authenticated and authorized? |
-| 4 | How will the File Processor identify the trusted origin of each file? |
-| 5 | Can CCT retrieve `rule_attribute_catalog` values and render source selections per fulfillment type? |
-| 6 | How should existing member activities without `allowedSources` be handled? |
-| 7 | Should the final snapshot use the existing `fulfillment_state` structure or the `fulfillment_requirements` representation? |
-
----
-
-## 10. Implementation sequence
-
-Source catalog
-
-Add FULFILLMENT_SOURCE.
-
-Confirm supported source values.
-
-Activity configuration
-
-Extend RuleConfigInput.
-
-Save allowedSources per fulfillment rule.
-
-Member activity assignment
-
-Copy configured sources into the member activity snapshot.
-
-Rewards Service validation
-
-Implement common source and caller validation.
-
-Channel integration
-
-Pass trusted source information from File Processor, GraphQL, and REST.
-
-Testing
-
-Validate positive, negative, missing-source, unauthorized-source, and backward-compatibility scenarios.
-
-## 11. Spike conclusion
-
-**Recommended design:** Reuse the existing source catalog, activity fulfillment JSONB, and member activity snapshot.
-
-```text
-Global Source Catalog
-        |
-        v
-Per-Rule Allowed Sources
-        |
-        v
-Member Activity Snapshot
-        |
-        v
-Common Source Validation
-        |
-        v
-Consistent Fulfillment Processing
-```
-
-This approach avoids introducing a separate source-mapping table and centralizes enforcement in Rewards Service.
-
-**Decision required before implementation:** Confirm the source-to-fulfillment matrix, HBP enum mapping, authentication strategy, and CCT configuration capability.
+Fulfillment Source – Rule Group Design Discussion
+1. Understanding the existing rule groups
+Currently, rule_attribute_catalog contains two rule groups: ASSIGNMENT and FULFILLMENT.
+Rule group	Purpose	Examples
+ASSIGNMENT	Defines conditions to determine whether an activity should be assigned to a member.	Member group, frequency, member age, member gender
+FULFILLMENT	Defines requirements that a member must complete after an activity is assigned.	Reading, claims proof, self-attestation
+
+The distinction is clear:
+1. Assignment attributes determine who gets the activity and when.
+2. Fulfillment attributes determine what the member must complete.
+3. Fulfillment source identifies which system or channel submits the fulfillment.
+The third concept is different from the first two.
+2. Where should the fulfillment source belong?
+The fulfillment source does not fit perfectly into either of the existing groups. Let's look at why.
+Option A: ASSIGNMENT group
+Not recommended
+Assignment rules determine whether an activity should be assigned to a member.
+
+Examples:
+- Member age
+- Member gender
+- Member group
+- Frequency
+A source does not determine whether a member is eligible for an activity or whether an activity should be assigned.
+
+Therefore, it does not make sense to classify fulfillment source under ASSIGNMENT.
+Option B: FULFILLMENT group
+Possible, but not an exact fit
+Fulfillment rules define the requirements that a member must complete.
+
+Examples:
+- Reading
+- Claims proof
+- Self-attestation
+A fulfillment source does not represent an additional task or requirement that the member must complete. Instead, it identifies where the completion request originates.
+
+However, source is closely associated with fulfillment because it is used to validate whether a particular fulfillment can be accepted.
+
+For example:
+- Reading can be fulfilled through ATHENA or CRM.
+- Self-attestation can be fulfilled through HBP.
+- Claims proof can be fulfilled through CRM or PSP.
+Therefore, source is related to fulfillment, but it is not itself a fulfillment requirement.
+Option C: Introduce a new SOURCE group
+Recommended for the current implementation
+Add a third group, SOURCE, to the existing rule_attribute_catalog.
+
+This keeps the existing groups unchanged and gives source its own classification.
+Rule group	Purpose	Examples
+ASSIGNMENT	Conditions for activity assignment	Member age, gender, frequency, member group
+FULFILLMENT	Requirements to be completed	Reading, claims proof, self-attestation
+SOURCE	Originating systems or channels for fulfillment submissions	HBP, CRM, PSP, ATHENA
+
+This is a practical approach for the current application without introducing another database table.
+3. How the source group relates to fulfillment
+Although SOURCE is maintained as a separate group in the catalog, its configuration is associated with individual fulfillment requirements.
+                CCT Activity Configuration
+                          |
+              +-----------+-----------+
+              |                       |
+              v                       v
+       Assignment Rules        Fulfillment Rules
+              |                       |
+         ASSIGNMENT               FULFILLMENT
+              |                       |
+        Member Age                  Reading
+        Member Gender               Claims Proof
+        Member Group                Self-Attestation
+        Frequency                        |
+                                         |
+                                         v
+                                  Allowed Sources
+                                         |
+                                         v
+                                      SOURCE
+                                         |
+                                  HBP / CRM / PSP
+                                      ATHENA
+
+
+The important distinction is:
