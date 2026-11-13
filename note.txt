@@ -1,81 +1,59 @@
-Fulfillment Source – Rule Group Design Discussion
-1. Understanding the existing rule groups
-Currently, rule_attribute_catalog contains two rule groups: ASSIGNMENT and FULFILLMENT.
-Rule group	Purpose	Examples
-ASSIGNMENT	Defines conditions to determine whether an activity should be assigned to a member.	Member group, frequency, member age, member gender
-FULFILLMENT	Defines requirements that a member must complete after an activity is assigned.	Reading, claims proof, self-attestation
+# 1. Reflecting on the goals you had for this year, what were your key accomplishments?
 
-The distinction is clear:
-1. Assignment attributes determine who gets the activity and when.
-2. Fulfillment attributes determine what the member must complete.
-3. Fulfillment source identifies which system or channel submits the fulfillment.
-The third concept is different from the first two.
-2. Where should the fulfillment source belong?
-The fulfillment source does not fit perfectly into either of the existing groups. Let's look at why.
-Option A: ASSIGNMENT group
-Not recommended
-Assignment rules determine whether an activity should be assigned to a member.
+### A. Rewards Project – Technical Ownership and Solution Engineering
 
-Examples:
-- Member age
-- Member gender
-- Member group
-- Frequency
-A source does not determine whether a member is eligible for an activity or whether an activity should be assigned.
+- **Requirement Analysis and Solution Exploration:** Took an active role in understanding business requirements, identifying different use cases, challenging existing assumptions, and raising relevant questions to uncover functional gaps and edge cases before implementation. Evaluated alternative approaches and actively contributed to solution discussions to arrive at effective technical decisions.
 
-Therefore, it does not make sense to classify fulfillment source under ASSIGNMENT.
-Option B: FULFILLMENT group
-Possible, but not an exact fit
-Fulfillment rules define the requirements that a member must complete.
+- **Schema Design and Technical Improvements:** Contributed to designing and refining data schemas, supporting infrastructure, and validation processes, focusing on data consistency, integrity, and maintainability. Explored improvements to existing structures to accommodate evolving business requirements and ensure better implementation efficiency.
 
-Examples:
-- Reading
-- Claims proof
-- Self-attestation
-A fulfillment source does not represent an additional task or requirement that the member must complete. Instead, it identifies where the completion request originates.
+- **Technical Collaboration and Delivery:** Actively participated in technical discussions and collaborated with UI and other dependent teams to resolve technical dependencies. Focused on establishing consistent implementation approaches, sharing knowledge, and improving team efficiency through open discussions and collaborative problem-solving.
 
-However, source is closely associated with fulfillment because it is used to validate whether a particular fulfillment can be accepted.
+- **Team Guidance and Knowledge Sharing:** Guided junior engineers in understanding the project scope, application architecture, development workflows, and implementation approaches. Provided technical guidance, helped resolve development challenges, and supported their understanding of business requirements and overall project functionality.
 
-For example:
-- Reading can be fulfilled through ATHENA or CRM.
-- Self-attestation can be fulfilled through HBP.
-- Claims proof can be fulfilled through CRM or PSP.
-Therefore, source is related to fulfillment, but it is not itself a fulfillment requirement.
-Option C: Introduce a new SOURCE group
-Recommended for the current implementation
-Add a third group, SOURCE, to the existing rule_attribute_catalog.
+### B. Rewards 360 Degree Chatbot – Solution Conceptualisation, Architecture and Innovation
 
-This keeps the existing groups unchanged and gives source its own classification.
-Rule group	Purpose	Examples
-ASSIGNMENT	Conditions for activity assignment	Member age, gender, frequency, member group
-FULFILLMENT	Requirements to be completed	Reading, claims proof, self-attestation
-SOURCE	Originating systems or channels for fulfillment submissions	HBP, CRM, PSP, ATHENA
+- **Solution Conceptualisation and Architecture:** Took the initiative in conceptualising the Rewards 360 Degree Chatbot and building its overall architecture and technical direction. Independently explored how an AI-powered chatbot could integrate with the existing Rewards application and its internal services to provide an intelligent, dynamic, and conversational experience.
 
-This is a practical approach for the current application without introducing another database table.
-3. How the source group relates to fulfillment
-Although SOURCE is maintained as a separate group in the catalog, its configuration is associated with individual fulfillment requirements.
-                CCT Activity Configuration
-                          |
-              +-----------+-----------+
-              |                       |
-              v                       v
-       Assignment Rules        Fulfillment Rules
-              |                       |
-         ASSIGNMENT               FULFILLMENT
-              |                       |
-        Member Age                  Reading
-        Member Gender               Claims Proof
-        Member Group                Self-Attestation
-        Frequency                        |
-                                         |
-                                         v
-                                  Allowed Sources
-                                         |
-                                         v
-                                      SOURCE
-                                         |
-                                  HBP / CRM / PSP
-                                      ATHENA
+- **Intelligent Query Handling and Token Optimisation:** Designed an approach to minimise unnecessary LLM consumption by separating predefined questions and responses from queries requiring AI-generated responses. Explored segregation of data sources, database information, Q&A content, and knowledge-base information to optimise query handling and reserve expensive LLM calls for scenarios where intelligent response generation was actually required.
+
+- **Dynamic GraphQL Integration and Prompt Engineering:** Designed the chatbot's interaction approach to dynamically interpret user queries, identify the relevant data requirements, and generate appropriate GraphQL queries based on available API capabilities. Focused on prompt engineering to ensure the AI could interpret API JSON responses, understand the returned data, and generate accurate, contextual, and natural English responses without relying on rigid, predefined response structures.
+
+- **Conversational Experience and Rapid Implementation:** Incorporated voice-based response functionality, allowing users to listen to chatbot responses through an interactive voice option. Conceptualisation and architectural exploration were completed within a day, followed by implementation on the next day, leveraging AI-assisted development capabilities to accelerate the overall development process.
+
+- **AI Hackathon Achievement:** The Rewards 360 Degree Chatbot solution contributed to securing **first place in the AI Hackathon conducted by the OCPM team**. The solution demonstrated the potential of combining intelligent query handling, optimised LLM usage, dynamic data retrieval, and natural-language response generation to deliver an effective conversational experience.
+
+### C. Artificial Intelligence Enablement – Responsible AI Adoption
+
+- **AI-Assisted Development with IntelliJ Copilot:** Regularly leveraged IntelliJ Copilot for code implementation, understanding existing project structures, analysing implementation patterns followed by other team members, and reviewing code changes and merges. This helped accelerate development and improve familiarity with different areas of the codebase.
+
+- **Optum Copilot for Technical Problem-Solving:** Used Optum Copilot for project-specific architectural questions, exploring design alternatives, evaluating implementation approaches, and identifying possible solutions to technical challenges. Leveraged it to accelerate technical research and validate different approaches.
+
+- **ChatGPT for Technical Learning and Exploration:** Used ChatGPT to deepen understanding of software architecture, coding practices, design patterns, and emerging concepts, particularly around chatbot architecture, LLM integration, prompt engineering, token optimisation, and integrating AI capabilities into existing enterprise applications.
+
+- **Responsible and Effective AI Adoption:** Followed a validation-driven approach by reviewing, testing, and adapting AI-generated code and recommendations before applying them. Used AI as a productivity and engineering problem-solving partner while retaining ownership of technical decisions, implementation quality, and security considerations.
+
+### D. Engineering Excellence, Efficiency and Operational Excellence
+
+- **Technology and Engineering Expertise:** Strengthened hands-on expertise primarily across Java, Spring Boot, GraphQL, PostgreSQL, and Azure cloud technologies. Also continued exploring ReactJS, CSS, TypeScript, and Node.js to broaden full-stack development capabilities and understand different application integration patterns.
+
+- **Cloud, Storage and Deployment Engineering:** Worked with Azure services and supporting technologies, including Azure Blob Storage for file storage and access, and GitHub Actions workflows for deployment automation. Focused on understanding application deployment requirements, cloud integrations, and supporting infrastructure.
+
+- **Monitoring and Application Observability:** Worked with Datadog to improve application monitoring and observability, including defining and configuring alerts for different application scenarios. Focused on improving visibility into application behaviour and identifying potential issues through relevant monitoring and alerting mechanisms.
+
+- **Team Productivity and Cross-Team Collaboration:** Collaborated with UI, backend, and other dependent teams to improve alignment on technical requirements and integrations. Encouraged open discussions, knowledge sharing, and collaborative problem-solving while helping junior engineers understand project implementation and technical approaches.
 
 
-The important distinction is:
+
+2. What challenges did you face and how did you develop?
+- Understanding Complex Business Requirements: Working through different business scenarios, dependencies, and edge cases required deeper understanding beyond individual development requirements. Improved this by actively questioning assumptions, exploring additional use cases, discussing requirements with stakeholders and team members, and translating business needs into clearer technical solutions.
+- Evaluating Architecture and Technical Trade-offs: Designing solutions, particularly for the Rewards 360 Degree Chatbot, involved exploring unfamiliar concepts and evaluating multiple integration and implementation approaches. Invested time in researching technologies, understanding architectural patterns, evaluating alternatives, and using AI-assisted exploration to accelerate solution discovery and improve technical decision-making.
+- Working Across Multiple Technologies and Platforms: Expanding technical contributions across Java, Spring Boot, PostgreSQL, Azure cloud services, chatbot integration, deployment workflows, and monitoring introduced new learning requirements. Addressed this through hands-on exploration, technical research, experimentation, and continuous learning to build broader full-stack and cloud-native engineering capabilities.
+- Balancing Development, Architecture and Team Responsibilities: Managing hands-on implementation alongside solution exploration, technical discussions, code reviews, and guiding junior engineers required effective prioritisation. Continued improving the ability to balance delivery commitments with technical quality, knowledge sharing, and broader team responsibilities.
+- Adopting AI Effectively in Engineering Workflows: Identified opportunities to use IntelliJ Copilot, Optum Copilot, and ChatGPT for different engineering activities. Developed better prompting and problem-analysis approaches, while learning to critically evaluate AI-generated suggestions, validate their correctness, and apply them responsibly within the project context.
+
+3. What do you want to continue to work towards in the coming year?
+- Advanced AI Enablement and Integration: Deepen expertise in Generative AI, LLMs, RAG, AI agents, and enterprise chatbot architectures. Explore practical opportunities to integrate AI capabilities into existing healthcare and business applications, while leveraging Copilot and other approved AI tools to improve development productivity, code quality, and engineering workflows.
+- Architecture and End-to-End Solution Ownership: Take greater ownership of solution architecture and technical direction, from requirement analysis and design through implementation and integration. Strengthen expertise in distributed systems, microservices, event-driven architecture, API design, Java/Spring Boot, cloud-native technologies, and scalable application patterns.
+- Engineering Excellence and Operational Reliability: Continue improving code quality, automated testing, application performance, deployment automation, and cloud infrastructure practices. Strengthen observability through Datadog monitoring, meaningful alerts, logging, and proactive identification of production issues. Develop a stronger focus on end-to-end service ownership and operational readiness.
+- Team Productivity and Technical Leadership: Continue guiding junior engineers, sharing technical knowledge, and encouraging active participation in solution discussions. Take a more proactive role in driving technical meetings, coordinating with UI and dependent teams, distributing technical knowledge, and enabling broader ownership across the team.
+- Continuous Learning and Business Impact: Strengthen domain and business understanding to identify opportunities for technical improvements and more effective solutions. Continue exploring emerging technologies, improving architectural decision-making, and applying engineering and AI capabilities to solve complex problems while delivering maintainable, reliable, and high-quality solutions.
